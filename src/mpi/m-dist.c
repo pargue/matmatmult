@@ -170,9 +170,9 @@ void mul(mat A, mat B, mat C, corners a, corners b, corners c)
 
     for(i=0; i < LEN(P); i++)
     {
+        P[i] = NULL;
         if (0 == my_rank || i == my_rank)
         {
-            P[i] = NULL;
             P[i] = allocm(N, N);
             if (NULL == P[i])
                 goto freemats;
@@ -197,7 +197,7 @@ void mul(mat A, mat B, mat C, corners a, corners b, corners c)
         add( B, B, T, bii[0][0], bii[1][1], p);
         mul( S, T, P[0], p, p, p);
         for (i=1; i<LEN(P); i++)
-        MPI_Recv(&(P[i]), N*N, MPI_DOUBLE, MPI_ANY_SOURCE, msgtag, MPI_COMM_WORLD, &status);
+            MPI_Recv(&(P[i]), N*N, MPI_DOUBLE, MPI_ANY_SOURCE, msgtag, MPI_COMM_WORLD, &status);
         break;
 
     case 1:
