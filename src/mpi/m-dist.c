@@ -1,351 +1,562 @@
-/*
- * Recursive matrix mult by strassen's method and MPI.
- * adapted from https://sites.google.com/site/algorithms2013/home/recursive-matrix-operations/strassen-matrix-multiplication
- * 2013-Feb-15 Fri 11:47 by moshahmed/at/gmail.
- *
- */
-
-
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <mpi.h>
+/*******************************************************************************************
+author: Tyler Nowak
+date:   11/13/2016
+This algorithm is a serial implementation of Strassen's matrix multiplication algorithm.
+*******************************************************************************************/
+#include <iostream>
 #include <time.h>
+#include <iomanip>
+#include <string>
+#include <math.h>
+#include <mpi.h>
+#include <unistd.h>
+using namespace std;
 
-#define MFMT "%4.2g"
-#define MAT(NAME) #NAME, NAME
-#define LEN(A) (sizeof(A)/sizeof(A[0]))
-typedef double elem;
+void FillMatrix(double matrix[], int dimension, int maxInt);
+void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim);
+void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[], int dim);
+void FillSubmatrices(double matrix[], int dim, double sub1[],
+                     double sub2[], double sub3[], double sub4[],
+                     int subDim);
+void AddMatrices(double matrix1[], double matrix2[], double matrix3[], int dim);
+void SubtractMatrices(double matrix1[], double matrix2[], double matrix3[], int dim);
+void DisplayMatrix(double matrix[], int dim);
+void FillWithQuads(double quad1[], double quad2[], double quad3[],
+                   double quad4[], int subDim, double matrix[], int dim);
 
-typedef elem **mat;
 
-#define MORDEREXP 2
-#define N (1<<MORDEREXP)   // 2^M
-typedef struct { int ra, rb, ca, cb; } corners; // for tracking rows and columns.
-
-// set A[a] = k
-void set(mat A, corners a, elem k)
+int main(int argc, char* argv[])
 {
-  int i,j;
-  for(i=a.ra;i<a.rb;i++)
-    for(j=a.ca;j<a.cb;j++)
-      A[i][j] = k;
-}
+     int my_rank,comm_size;
 
-int randm(mat A, elem x, elem y)
-{
-    int i,j;
-    for (i = 0; i<N; i++)
+     int dim;                                        // row/col dim of input matrices
+     int maxInt;                                     // number of possible element values
+     double* firstMatrix = NULL;                     // first input matrix
+     double* secondMatrix = NULL;                    // second input matrix
+     double* resultMatrix = NULL;                    // matrix mult result
+
+     // Check for correct argument count
+     if (argc != 3)
+     {
+         cerr << "Incorrect number or args!\n";
+         return 1;
+     }
+
+     // Set matrix dimension and max element size
+     dim = stoi(argv[1]);
+     maxInt = stoi(argv[2]);
+
+     // Check for valid dimension
+     if ((log(dim) / log(2)) != (int)(log(dim) / log(2)))  // dim must be 2^x
+     {
+         cerr << "Invalid dimension!\n";
+         return 1;
+     }
+
+     // Check for valid maxInt
+     if (maxInt < 0)
+     {
+         cerr << "Invalid max integer!\n";
+         return 1;
+     }
+
+     // Initialize matrices
+     firstMatrix = new double[dim * dim];
+     secondMatrix = new double[dim * dim];
+     resultMatrix = new double[dim * dim];
+
+    // Initialize random number generator
+    srand(time(NULL));
+
+
+    if(MPI_Init(&argc,&argv) != MPI_SUCCESS)
     {
-        for (j = 0; j<N; j++)
-        {
-            A[i][j] = (elem) (x + (y-x) * (rand()/(elem)RAND_MAX));;
-        }
-    }
-    return 0;
-}
-
-int printm(char* name, mat A)
-{
-    int i,j;
-    printf("mat %s = \n", name);
-    for (i = 0; i<N; i++)
-    {
-        for (j = 0; j<N; j++)
-        {
-            printf(MFMT " ", A[i][j]);
-        }
-        printf("\n");
-    }
-    return 0;
-}
-
-mat allocm(int rows, int cols) {
-    elem *data = (elem *)malloc(rows*cols*sizeof(elem));
-    if (NULL == data)
-        return NULL;
-    mat array = (mat)malloc(rows*sizeof(elem*));
-    if (NULL == array)
-    {
-        free(data);
-        return NULL;
-    }
-    int i;
-    for (i=0; i<rows; i++)
-        array[i] = &(data[cols*i]);
-
-    return array;
-}
-
-void freem(mat m)
-{
-    if (NULL == m)
-        return;
-    free(m[0]);
-    m[0] = NULL;
-    free(m);
-    m = NULL;
-}
-
-// C[c] = A[a] + B[b]
-void add(mat A, mat B, mat C, corners a, corners b, corners c)
-{
-    int rd = a.rb - a.ra;
-    int cd = a.cb - a.ca;
-    int i,j;
-    for(i = 0; i<rd; i++ ){
-        for(j = 0; j<cd; j++ ){
-            C[i+c.ra][j+c.ca] = A[i+a.ra][j+a.ca] + B[i+b.ra][j+b.ca];
-        }
-    }
-}
-
-// C[c] = A[a] - B[b]
-void  sub(mat A, mat B, mat C, corners a, corners b, corners c)
-{
-    int rd = a.rb - a.ra;
-    int cd = a.cb - a.ca;
-    int i,j;
-    for(i = 0; i<rd; i++ ){
-        for(j = 0; j<cd; j++ ){
-            C[i+c.ra][j+c.ca] = A[i+a.ra][j+a.ca] - B[i+b.ra][j+b.ca];
-        }
-    }
-}
-
-// Return 1/4 of the matrix: top/bottom , left/right.
-void find_corner(corners a, int i, int j, corners *b)
- {
-    int rm = a.ra + (a.rb - a.ra)/2 ;
-    int cm = a.ca + (a.cb - a.ca)/2 ;
-    *b = a;
-    if (i==0)  b->rb = rm;     // top rows
-    else       b->ra = rm;     // bot rows
-    if (j==0)  b->cb = cm;     // left cols
-    else       b->ca = cm;     // right cols
-}
-
-// Multiply: A[a] * B[b] => C[c], recursively.
-void mul(mat A, mat B, mat C, corners a, corners b, corners c)
-{
-    corners aii[2][2], bii[2][2], cii[2][2], p;
-    mat P[7], S = NULL, T = NULL;
-    int i, j, m, n, k;
-
-    int my_rank, comm_size;
-    int msgtag = 0;
-    MPI_Status status;
-
-    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
-
-    // Check: A[m n] * B[n k] = C[m k]
-    m = a.rb - a.ra; assert(m == (c.rb-c.ra));
-    n = a.cb - a.ca; assert(n == (b.rb-b.ra));
-    k = b.cb - b.ca; assert(k == (c.cb-c.ca));
-    assert(m > 0);
-
-    if (1 == n)
-    {
-        if (0 == my_rank)
-            C[c.ra][c.ca] += A[a.ra][a.ca] * B[b.ra][b.ca];
-        return;
-    }
-
-    // Create the 12 smaller matrix indexes:
-    //  A00 A01   B00 B01   C00 C01
-    //  A10 A11   B10 B11   C10 C11
-    for(i=0;i<2;i++)
-    {
-        for(j=0;j<2;j++)
-        {
-            find_corner(a, i, j, &aii[i][j]);
-            find_corner(b, i, j, &bii[i][j]);
-            find_corner(c, i, j, &cii[i][j]);
-        }
-    }
-
-    p.ra = p.ca = 0;
-    p.rb = p.cb = m/2;
-
-    for(i=0; i < LEN(P); i++)
-    {
-        P[i] = NULL;
-        if (0 == my_rank || i == my_rank)
-        {
-            P[i] = allocm(N, N);
-            if (NULL == P[i])
-                goto freemats;
-            set(P[i], p, 0);
-        }
-    }
-    S = allocm(N, N);
-    if (NULL == S)
-        goto freemats;
-    T = allocm(N, N);
-    if (NULL == T)
-        goto freemats;
-
-    #define ST0 set(S,p,0); set(T,p,0)
-
-    switch(my_rank)
-    {
-    case 0:
-        // (A00 + A11) * (B00+B11) = S * T = P0
-        ST0;
-        add( A, A, S, aii[0][0], aii[1][1], p);
-        add( B, B, T, bii[0][0], bii[1][1], p);
-        mul( S, T, P[0], p, p, p);
-        for (i=1; i<LEN(P); i++)
-            MPI_Recv(&(P[i]), N*N, MPI_DOUBLE, MPI_ANY_SOURCE, msgtag, MPI_COMM_WORLD, &status);
-        break;
-
-    case 1:
-        // (A10 + A11) * B00 = S * B00 = P1
-        ST0;
-        add( A, A, S, aii[1][0], aii[1][1], p);
-        mul( S, B, P[1], p, bii[0][0], p);
-        MPI_Send(&(P[1]), N*N, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
-        break;
-
-    case 2:
-        // A00 * (B01 - B11) = A00 * T = P2
-        ST0;
-        sub( B, B, T, bii[0][1], bii[1][1], p);
-        mul( A, T, P[2], aii[0][0], p, p);
-        MPI_Send(&(P[2]), N*N, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
-        break;
-
-    case 3:
-        // A11 * (B10 - B00) = A11 * T = P3
-        ST0;
-        sub(B, B, T, bii[1][0], bii[0][0], p);
-        mul(A, T, P[3], aii[1][1], p, p);
-        MPI_Send(&(P[3]), N*N, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
-        break;
-
-    case 4:
-        // (A00 + A01) * B11 = S * B11 = P4
-        ST0;
-        add(A, A, S, aii[0][0], aii[0][1], p);
-        mul(S, B, P[4], p, bii[1][1], p);
-        MPI_Send(&(P[4]), N*N, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
-        break;
-
-    case 5:
-        // (A10 - A00) * (B00 + B01) = S * T = P5
-        ST0;
-        sub(A, A, S, aii[1][0], aii[0][0], p);
-        add(B, B, T, bii[0][0], bii[0][1], p);
-        mul(S, T, P[5], p, p, p);
-        MPI_Send(&(P[5]), N*N, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
-        break;
-
-    case 6:
-        // (A01 - A11) * (B10 + B11) = S * T = P6
-        ST0;
-        sub(A, A, S, aii[0][1], aii[1][1], p);
-        add(B, B, T, bii[1][0], bii[1][1], p);
-        mul(S, T, P[6], p, p, p);
-        MPI_Send(&(P[6]), N*N, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
-        break;
-    }
-
-    if (0 == my_rank)
-    {
-        // P0 + P3 - P4 + P6 = S - P4 + P6 = T + P6 = C00
-        add(P[0], P[3], S, p, p, p);
-        sub(S, P[4], T, p, p, p);
-        add(T, P[6], C, p, p, cii[0][0]);
-
-        // P2 + P4 = C01
-        add(P[2], P[4], C, p, p, cii[0][1]);
-
-        // P1 + P3 = C10
-        add(P[1], P[3], C, p, p, cii[1][0]);
-
-        // P0 + P2 - P1 + P5 = S - P1 + P5 = T + P5 = C11
-        add(P[0], P[2], S, p, p, p);
-        sub(S, P[1], T, p, p, p);
-        add(T, P[5], C, p, p, cii[1][1]);
-    }
-
-freemats:
-    for(i=0; i < LEN(P); i++)
-    {
-        freem(P[i]);
-    }
-    freem(S);
-    freem(T);
-
-}
-
-
-int main(int argc, char **argv){
-
-    int my_rank,comm_size;
-
-    mat A = NULL;
-    mat B = NULL;
-    mat C = NULL;
-    A = allocm(N,N);
-    if (NULL == A)
-        goto freemats;
-    B = allocm(N,N);
-    if (NULL == B)
-        goto freemats;
-    C = allocm(N,N);
-    if (NULL == C)
-        goto freemats;
-
-    corners ai = {0,N,0,N};
-    corners bi = {0,N,0,N};
-    corners ci = {0,N,0,N};
-
-    srand(time(0));
-
-    if(MPI_Init(&argc,&argv) != MPI_SUCCESS){
         printf("MPI-INIT Failed\n");
         return 1;
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 
-    if(0 == my_rank)
+    if (my_rank == 0)
     {
-        randm(A, 0, 10);
-        randm(B, 0, 10);
-        printm(MAT(A));
-        printm(MAT(B));
-    }
-    MPI_Bcast(&(A[0][0]), N*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&(B[0][0]), N*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        // Fill first matrix
+        FillMatrix(firstMatrix, dim, maxInt);
 
-    if (0 == my_rank)
-    {
-        set(C,ci,0);
+        // Fill second matrix
+        FillMatrix(secondMatrix, dim, maxInt);
     }
-    // add(A,B,C, ai, bi, ci);
-    mul(A,B,C, ai, bi, ci);
 
-    if(0 == my_rank)
+    MPI_Bcast(firstMatrix, dim*dim, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(secondMatrix, dim*dim, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // Multiply the two matrices using Strassen's algorithm
+    StrassenMultMPI(firstMatrix, secondMatrix, resultMatrix, dim);
+
+    if (my_rank == 0)
     {
-//        printm(MAT(C), ci, "C");
-        printm(MAT(C));
+        sleep(my_rank);
+        printf("my_rank:%d\n", my_rank);
+        // Display first matrix
+        cout << "First matrix:\n";
+        DisplayMatrix(firstMatrix, dim);
+
+        // Display second matrix
+        cout << "\n\nSecond matrix:\n";
+        DisplayMatrix(secondMatrix, dim);
+
+        // Display result matrix
+        cout << "\n\nResult matrix:\n";
+        DisplayMatrix(resultMatrix, dim);
+        cout << endl;
+    }
+
+    MPI_Finalize();
+    // Deallocate matrices
+    delete [] firstMatrix;
+    delete [] secondMatrix;
+    delete [] resultMatrix;
+
+    return 0;
+}
+
+// Fill a matrix of a specified dimension with random integers
+void FillMatrix(double matrix[], int dim, int maxInt)
+{
+    if (maxInt == 0)
+        for (int i=0; i<(dim*dim); i++)
+            matrix[i] = 1;
+    else
+        for (int i=0; i<(dim*dim); i++)
+            matrix[i] = rand() % maxInt;                  // 0 <= matrix element < maxInt
+}
+
+// Multiply two matrices using Strassen's algorithm
+void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim)
+{
+//    printf("%s\n", __func__);
+    // Check for matrices with 1 element
+    if (dim == 1)
+    {
+        matrix3[0] = matrix1[0] * matrix2[0];          // only int multipication needed
+        return;
+    }
+
+    if (dim == 2)
+    {
+        double p1, p2, p3, p4, p5, p6, p7;         // hold results of Strassen's 7 equations
+
+        // Find 7 equation results for 2 x 2 matrices
+        p1 = matrix1[0] * (matrix2[1] - matrix2[3]);   // a(f-h)
+        p2 = (matrix1[0] + matrix1[1]) * matrix2[3];   // (a+b)h
+        p3 = (matrix1[2] + matrix1[3]) * matrix2[0];   // (c+d)e
+        p4 = matrix1[3] * (matrix2[2] - matrix2[0]);   // d(g-e)
+        p5 = (matrix1[0] + matrix1[3]) *
+             (matrix2[0] + matrix2[3]);                // (a+d)(e+h)
+        p6 = (matrix1[1] - matrix1[3]) *
+             (matrix2[2] + matrix2[3]);                // (b-d)(g+h)
+        p7 = (matrix1[0] - matrix1[2]) *
+             (matrix2[0] + matrix2[1]);                // (a-c)(e+f)
+
+        // Fill result matrix3 based on p1-p7
+        matrix3[0] = p5 + p4 - p2 + p6;
+        matrix3[1] = p1 + p2;
+        matrix3[2] = p3 + p4;
+        matrix3[3] = p1 + p5 - p3 - p7;
     }
     else
     {
-        printf("my_rank %d\n", my_rank);
-        printm(MAT(A));
-        printm(MAT(B));
+        int subDim = dim / 2;                        // dim for each quadrant of the matrices
+        int numElements = subDim * subDim;           // number of elements in sub-matrices
+
+        // Initialize sub-matrices
+        double* a = new double[numElements];         // top, left quadrant of matrix1
+        double* b = new double[numElements];         // top, right quadrant of matrix1
+        double* c = new double[numElements];         // bottom, left quadrant of matrix1
+        double* d = new double[numElements];         // bottom, right quadrant of matrix1
+        double* e = new double[numElements];         // top, left quadrant of matrix2
+        double* f = new double[numElements];         // top, right quadrant of matrix2
+        double* g = new double[numElements];         // bottom, left quadrant of matrix2
+        double* h = new double[numElements];         // bottom, right quadrant of matrix2
+        double* result1 = new double[numElements];   // the result of a sub-matrix operation
+        double* result2 = new double[numElements];   // the result of a sub-matrix operation
+        double* m1 = new double[numElements];        // matrix with result of Strassen's eq. 1
+        double* m2 = new double[numElements];        // matrix with result of Strassen's eq. 2
+        double* m3 = new double[numElements];        // matrix with result of Strassen's eq. 3
+        double* m4 = new double[numElements];        // matrix with result of Strassen's eq. 4
+        double* m5 = new double[numElements];        // matrix with result of Strassen's eq. 5
+        double* m6 = new double[numElements];        // matrix with result of Strassen's eq. 6
+        double* m7 = new double[numElements];        // matrix with result of Strassen's eq. 7
+        double* quad1 = new double[numElements];     // top, left quadrant of matrix3
+        double* quad2 = new double[numElements];     // top, right quadrant of matrix3
+        double* quad3 = new double[numElements];     // bottom, left quadrant of matrix3
+        double* quad4 = new double[numElements];     // bottom, right quadrant of matrix3
+
+        // Fill sub-matrices a-h from matrix1 and matrix2
+        FillSubmatrices(matrix1, dim, a, b, c, d, subDim);
+        FillSubmatrices(matrix2, dim, e, f, g, h, subDim);
+
+        // Find matrices m1-m7 with results for equations 1-7
+        SubtractMatrices(f, h, result1, subDim);            // f-h
+        StrassenMult(a, result1, m1, subDim);               // a(f-h)
+
+        AddMatrices(a, b, result1, subDim);                 // a+b
+        StrassenMult(result1, h, m2, subDim);               // (a+b)h
+
+        AddMatrices(c, d, result1, subDim);                  // c+d
+        StrassenMult(result1, e, m3, subDim);                // (c+d)e
+
+        SubtractMatrices(g, e, result1, subDim);             // g-e
+        StrassenMult(d, result1, m4, subDim);                // d(g-e)
+
+        AddMatrices(a, d, result1, subDim);                  // a+d
+        AddMatrices(e, h, result2, subDim);                  // e+h
+        StrassenMult(result1, result2, m5, subDim);          // (a+d)(e+h)
+
+        SubtractMatrices(b, d, result1, subDim);             // b-d
+        AddMatrices(g, h, result2, subDim);                  // g+h
+        StrassenMult(result1, result2, m6, subDim);          // (b-d)(g+h)
+
+        SubtractMatrices(a, c, result1, subDim);             // a-c
+        AddMatrices(e, f, result2, subDim);                  // e+f
+        StrassenMult(result1, result2, m7, subDim);          // (a-c)(e+f)
+
+        // Determine quadrants of matrix3 based on m1-m7
+        AddMatrices(m5, m4, result1, subDim);                // m5+m4
+        SubtractMatrices(result1, m2, result2, subDim);      // m5+m4-m2
+        AddMatrices(result2, m6, quad1, subDim);             // m5+m4-m2+m6
+
+        AddMatrices(m1, m2, quad2, subDim);                  // m1+m2
+
+        AddMatrices(m3, m4, quad3, subDim);                  // m3+m4
+
+        AddMatrices(m1, m5, result1, subDim);                // m1+m5
+        SubtractMatrices(result1, m3, result2, subDim);      // m1+m5-m3
+        SubtractMatrices(result2, m7, quad4, subDim);        // m1+m5-m3-m7
+
+        // Fill matrix3 from quadrants
+        FillWithQuads(quad1, quad2, quad3, quad4, subDim, matrix3, dim);
+
+        // Deallocate sub-matrices
+        delete [] a;
+        delete [] b;
+        delete [] c;
+        delete [] d;
+        delete [] e;
+        delete [] f;
+        delete [] g;
+        delete [] h;
+        delete [] result1;
+        delete [] result2;
+        delete [] m1;
+        delete [] m2;
+        delete [] m3;
+        delete [] m4;
+        delete [] m5;
+        delete [] m6;
+        delete [] m7;
+        delete [] quad1;
+        delete [] quad2;
+        delete [] quad3;
+        delete [] quad4;
+    }
+}
+
+
+// Multiply two matrices using Strassen's algorithm
+void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[], int dim)
+{
+    int my_rank, comm_size;
+    int msgtag = 0;
+    MPI_Status status;
+    int i;
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+
+    // Check for matrices with 1 element
+    if (dim == 1)
+    {
+        matrix3[0] = matrix1[0] * matrix2[0];          // only int multipication needed
     }
 
-freemats:
-    freem(C);
-    freem(B);
-    freem(A);
+    if (dim == 2)
+    {
+        double p1, p2, p3, p4, p5, p6, p7;         // hold results of Strassen's 7 equations
 
-    MPI_Finalize();
+        // Find 7 equation results for 2 x 2 matrices
+        p1 =  matrix1[0] * (matrix2[1]  - matrix2[3]);  // a(f-h)
+        p2 = (matrix1[0] +  matrix1[1]) * matrix2[3];   // (a+b)h
+        p3 = (matrix1[2] +  matrix1[3]) * matrix2[0];   // (c+d)e
+        p4 =  matrix1[3] * (matrix2[2]  - matrix2[0]);  // d(g-e)
+        p5 = (matrix1[0] +  matrix1[3]) *
+                (matrix2[0] + matrix2[3]);                // (a+d)(e+h)
+        p6 = (matrix1[1] -  matrix1[3]) *
+                (matrix2[2] + matrix2[3]);                // (b-d)(g+h)
+        p7 = (matrix1[0] -  matrix1[2]) *
+                (matrix2[0] + matrix2[1]);                // (a-c)(e+f)
 
-    return 0;
+        // Fill result matrix3 based on p1-p7
+        matrix3[0] = p5 + p4 - p2 + p6;
+        matrix3[1] = p1 + p2;
+        matrix3[2] = p3 + p4;
+        matrix3[3] = p1 + p5 - p3 - p7;
+    }
+    if (dim > 2)
+    {
+        int subDim = dim / 2;                        // dim for each quadrant of the matrices
+        int numElements = subDim * subDim;           // number of elements in sub-matrices
+
+        // Initialize sub-matrices
+        double* a = new double[numElements];         // top, left quadrant of matrix1
+        double* b = new double[numElements];         // top, right quadrant of matrix1
+        double* c = new double[numElements];         // bottom, left quadrant of matrix1
+        double* d = new double[numElements];         // bottom, right quadrant of matrix1
+        double* e = new double[numElements];         // top, left quadrant of matrix2
+        double* f = new double[numElements];         // top, right quadrant of matrix2
+        double* g = new double[numElements];         // bottom, left quadrant of matrix2
+        double* h = new double[numElements];         // bottom, right quadrant of matrix2
+        double* result1 = new double[numElements];   // the result of a sub-matrix operation
+        double* result2 = new double[numElements];   // the result of a sub-matrix operation
+        double* m1 = new double[numElements];        // matrix with result of Strassen's eq. 1
+        double* m2 = new double[numElements];        // matrix with result of Strassen's eq. 2
+        double* m3 = new double[numElements];        // matrix with result of Strassen's eq. 3
+        double* m4 = new double[numElements];        // matrix with result of Strassen's eq. 4
+        double* m5 = new double[numElements];        // matrix with result of Strassen's eq. 5
+        double* m6 = new double[numElements];        // matrix with result of Strassen's eq. 6
+        double* m7 = new double[numElements];        // matrix with result of Strassen's eq. 7
+        double* quad1 = new double[numElements];     // top, left quadrant of matrix3
+        double* quad2 = new double[numElements];     // top, right quadrant of matrix3
+        double* quad3 = new double[numElements];     // bottom, left quadrant of matrix3
+        double* quad4 = new double[numElements];     // bottom, right quadrant of matrix3
+
+        // Fill sub-matrices a-h from matrix1 and matrix2
+        FillSubmatrices(matrix1, dim, a, b, c, d, subDim);
+        FillSubmatrices(matrix2, dim, e, f, g, h, subDim);
+        // Find matrices m1-m7 with results for equations 1-7
+        switch(my_rank)
+        {
+        case 0:
+
+            SubtractMatrices(f, h, result1, subDim);            // f-h
+            StrassenMult(a, result1, m1, subDim);               // a(f-h)
+
+            MPI_Recv(m2, dim*dim, MPI_DOUBLE, 1, msgtag, MPI_COMM_WORLD, &status);
+
+            MPI_Recv(m3, dim*dim, MPI_DOUBLE, 2, msgtag, MPI_COMM_WORLD, &status);
+
+            MPI_Recv(m4, dim*dim, MPI_DOUBLE, 3, msgtag, MPI_COMM_WORLD, &status);
+
+            MPI_Recv(m5, dim*dim, MPI_DOUBLE, 4, msgtag, MPI_COMM_WORLD, &status);
+
+            MPI_Recv(m6, dim*dim, MPI_DOUBLE, 5, msgtag, MPI_COMM_WORLD, &status);
+
+            MPI_Recv(m7, dim*dim, MPI_DOUBLE, 6, msgtag, MPI_COMM_WORLD, &status);
+            break;
+
+        case 1:
+            AddMatrices(a, b, result1, subDim);                 // a+b
+            StrassenMult(result1, h, m2, subDim);               // (a+b)h
+            MPI_Send(m2, dim*dim, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
+            break;
+
+        case 2:
+            AddMatrices(c, d, result1, subDim);                  // c+d
+            StrassenMult(result1, e, m3, subDim);                // (c+d)e
+            MPI_Send(m3, dim*dim, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
+            break;
+
+        case 3:
+            SubtractMatrices(g, e, result1, subDim);             // g-e
+            StrassenMult(d, result1, m4, subDim);                // d(g-e)
+            MPI_Send(m4, dim*dim, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
+            break;
+
+        case 4:
+            AddMatrices(a, d, result1, subDim);                  // a+d
+            AddMatrices(e, h, result2, subDim);                  // e+h
+            StrassenMult(result1, result2, m5, subDim);          // (a+d)(e+h)
+            MPI_Send(m5, dim*dim, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
+            break;
+
+        case 5:
+            SubtractMatrices(b, d, result1, subDim);             // b-d
+            AddMatrices(g, h, result2, subDim);                  // g+h
+            StrassenMult(result1, result2, m6, subDim);          // (b-d)(g+h)
+            MPI_Send(m6, dim*dim, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
+            break;
+
+        case 6:
+            SubtractMatrices(a, c, result1, subDim);             // a-c
+            AddMatrices(e, f, result2, subDim);                  // e+f
+            StrassenMult(result1, result2, m7, subDim);          // (a-c)(e+f)
+            MPI_Send(m7, dim*dim, MPI_DOUBLE, 0, msgtag, MPI_COMM_WORLD);
+            break;
+        }
+        if (my_rank == 0)
+        {
+            // Determine quadrants of matrix3 based on m1-m7
+            AddMatrices(m5, m4, result1, subDim);                // m5+m4
+            SubtractMatrices(result1, m2, result2, subDim);      // m5+m4-m2
+            AddMatrices(result2, m6, quad1, subDim);             // m5+m4-m2+m6
+
+            AddMatrices(m1, m2, quad2, subDim);                  // m1+m2
+
+            AddMatrices(m3, m4, quad3, subDim);                  // m3+m4
+
+            AddMatrices(m1, m5, result1, subDim);                // m1+m5
+            SubtractMatrices(result1, m3, result2, subDim);      // m1+m5-m3
+            SubtractMatrices(result2, m7, quad4, subDim);        // m1+m5-m3-m7
+
+            // Fill matrix3 from quadrants
+            FillWithQuads(quad1, quad2, quad3, quad4, subDim, matrix3, dim);
+        }
+
+        // Deallocate sub-matrices
+        delete [] a;
+        delete [] b;
+        delete [] c;
+        delete [] d;
+        delete [] e;
+        delete [] f;
+        delete [] g;
+        delete [] h;
+        delete [] result1;
+        delete [] result2;
+        delete [] m1;
+        delete [] m2;
+        delete [] m3;
+        delete [] m4;
+        delete [] m5;
+        delete [] m6;
+        delete [] m7;
+        delete [] quad1;
+        delete [] quad2;
+        delete [] quad3;
+        delete [] quad4;
+
+    }
+}
+
+// Divide a matrix up by quadrant into 4 sub-matrices.  They are
+// sub1, sub2, sub3, and sub4 starting in the top, left quadrant
+// of the matrix, going left to right, and top to bottom.
+void FillSubmatrices(double matrix[], int dim, double sub1[],
+                     double sub2[], double sub3[], double sub4[],
+                     int subDim)
+{
+    int index1 = 0;                                   // index of a sub-matrix 1 element
+    int index2 = 0;                                   // index of a sub-matrix 2 element
+    int index3 = 0;                                   // index of a sub-matrix 3 element
+    int index4 = 0;                                   // index of a sub-matrix 4 element
+    int matrixElement = 0;                            // index of a matrix element
+
+    for (int row=0; row<subDim; row++)
+        for (int col=0; col<dim; col++)
+        {
+            if (col < subDim)
+            {
+                // Set sub1 element from matrix quadrant 1
+                sub1[index1] = matrix[matrixElement];
+                index1++;
+            }
+            else
+            {
+                // Set sub2 element from matrix quadrant 2
+                sub2[index2] = matrix[matrixElement];
+                index2++;
+            }
+            matrixElement++;
+        }
+
+   for (int row=subDim; row<dim; row++)
+       for (int col=0; col<dim; col++)
+       {
+           if (col < subDim)
+           {
+               // Set sub3 element from matrix quadrant 3
+               sub3[index3] = matrix[matrixElement];
+               index3++;
+           }
+           else
+           {
+               // Set sub4 element from matrix quadrant 4
+               sub4[index4] = matrix[matrixElement];
+               index4++;
+           }
+           matrixElement++;
+       }
+}
+
+// Add two matrices together into a result matrix
+void AddMatrices(double matrix1[], double matrix2[], double matrix3[], int dim)
+{
+    for (int i=0; i<(dim*dim); i++)
+        matrix3[i] = matrix1[i] + matrix2[i];
+}
+
+// Subtract two matrices.  Subtract matrix2 from matrix1 and put the difference
+// into a result matrix.
+void SubtractMatrices(double matrix1[], double matrix2[], double matrix3[], int dim)
+{
+    for (int i=0; i<(dim*dim); i++)
+        matrix3[i] = matrix1[i] - matrix2[i];
+}
+
+// Display a matrix
+void DisplayMatrix(double matrix[], int dim)
+{
+    for (int i=0; i<(dim*dim); i++)
+    {
+        if (i % dim == 0)                             // return at end of matrix line
+            cout << endl;
+        cout << " " << matrix[i];
+    }
+    cout << endl << endl;
+}
+
+// Fill a matrix with elements from four separate quadrant sub-matrices
+void FillWithQuads(double quad1[], double quad2[], double quad3[],
+                   double quad4[], int subDim, double matrix[], int dim)
+{
+    int index1 = 0;                                   // index of a quad1 element
+    int index2 = 0;                                   // index of a quad2 element
+    int index3 = 0;                                   // index of a quad3 element
+    int index4 = 0;                                   // index of a quad4 element
+    int matrixElement = 0;                            // index of a matrix element
+
+    for (int row=0; row<subDim; row++)
+        for (int col=0; col<dim; col++)
+        {
+            if (col < subDim)
+            {
+                // Set matrix element from quad1
+                matrix[matrixElement] = quad1[index1];
+                index1++;
+            }
+            else
+            {
+                // Set matrix element from quad2
+                matrix[matrixElement] = quad2[index2];
+                index2++;
+            }
+            matrixElement++;
+        }
+
+    for (int row=subDim; row<dim; row++)
+        for (int col=0; col<dim; col++)
+        {
+            if (col < subDim)
+            {
+                // Set matrix element from quad3
+                matrix[matrixElement] = quad3[index3];
+                index3++;
+            }
+            else
+            {
+                // Set matrix element from quad4
+                matrix[matrixElement] = quad4[index4];
+                index4++;
+            }
+            matrixElement++;
+        }
 }
