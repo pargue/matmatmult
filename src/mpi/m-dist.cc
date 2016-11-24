@@ -92,23 +92,23 @@ int main(int argc, char* argv[])
     // Multiply the two matrices using Strassen's algorithm
     StrassenMultMPI(firstMatrix, secondMatrix, resultMatrix, dim);
 
-    if (my_rank == 0)
-    {
-        sleep(my_rank);
-        printf("my_rank:%d\n", my_rank);
-        // Display first matrix
-        cout << "First matrix:\n";
-        DisplayMatrix(firstMatrix, dim);
-
-        // Display second matrix
-        cout << "\n\nSecond matrix:\n";
-        DisplayMatrix(secondMatrix, dim);
-
-        // Display result matrix
-        cout << "\n\nResult matrix:\n";
-        DisplayMatrix(resultMatrix, dim);
-        cout << endl;
-    }
+//    if (my_rank == 0)
+//    {
+//        sleep(my_rank);
+//        printf("my_rank:%d\n", my_rank);
+//        // Display first matrix
+//        cout << "First matrix:\n";
+//        DisplayMatrix(firstMatrix, dim);
+//
+//        // Display second matrix
+//        cout << "\n\nSecond matrix:\n";
+//        DisplayMatrix(secondMatrix, dim);
+//
+//        // Display result matrix
+//        cout << "\n\nResult matrix:\n";
+//        DisplayMatrix(resultMatrix, dim);
+//        cout << endl;
+//    }
 
     MPI_Finalize();
     // Deallocate matrices
@@ -268,7 +268,6 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[], int d
     int my_rank, comm_size;
     int msgtag = 0;
     MPI_Status status;
-    int i;
 
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
