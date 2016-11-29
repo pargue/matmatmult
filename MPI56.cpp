@@ -1,8 +1,10 @@
 /*******************************************************************************************
 This algorithm is a parallel implementation of Strassen's matrix multiplication algorithm
-using MPI.
+using MPI.  This program MUST be called with 56 nodes in the command line.
 
-This program MUST be called with 56 nodes in the command line.
+The implementation will recursively use up to the 56 nodes if needed.  If more than one 
+recursive call to the matrix multiplication algorithm is required, a single node will be
+used for subsequent calls.
 *******************************************************************************************/
 #include <iostream>
 #include <time.h>
@@ -272,14 +274,14 @@ void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim)
 }
 
 
-// Multiply two matrices using Strassen's algorithm and OpenMP/MPI
+// Multiply two matrices using Strassen's algorithm and MPI
 void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[], 
                         int dim, int my_rank, int comm_size, int startNode)
 {
-    MPI_Status status;                          // status of message
+    MPI_Status status;                             // status of message
 
     // Check for matrices with 1 element
-    if (dim == 1 and my_rank == 0)
+    if (dim == 1 && my_rank == 0)
     {
         matrix3[0] = matrix1[0] * matrix2[0];      // only int multipication needed
     }

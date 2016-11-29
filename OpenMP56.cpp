@@ -1,8 +1,10 @@
 /*******************************************************************************************
 This algorithm is a parallel implementation of Strassen's matrix multiplication algorithm
-using a combination OpenMP.
+using OpenMP.
 
-The implementation will recursively use up to 56 threads if needed.
+The implementation will recursively use up to 56 threads if needed.  If more than one 
+recursive call to the matrix multiplication algorithm is required, a single thread will be
+used for subsequent calls.
 *******************************************************************************************/
 #include <iostream>
 #include <time.h>
@@ -10,7 +12,6 @@ The implementation will recursively use up to 56 threads if needed.
 #include <string>
 #include <math.h>
 #include <omp.h>
-#include <unistd.h>
 using namespace std;
 
 void FillMatrix(double matrix[], int dimension, int maxInt);
@@ -38,6 +39,9 @@ int main(int argc, char* argv[])
      double* resultMatrix = NULL;                    // matrix mult result
      double startTime;                               // start of matrix mult
      double endTime;                                 // end of matrix mult
+
+     // Allow nested OpenMP parallelism
+     omp_set_nested(1);
 
      // Check for correct argument count
      if (argc != 3)
@@ -85,6 +89,13 @@ int main(int argc, char* argv[])
     // Display results
     printf("\nMultiplication of dimension %d matrices took %f"
            " seconds\n\n", dim, endTime - startTime);
+
+    /*printf("first matrix:\n");
+    DisplayMatrix(firstMatrix, dim);
+    printf("second matrix:\n");
+    DisplayMatrix(secondMatrix, dim);
+    printf("result:\n");
+    DisplayMatrix(resultMatrix, dim);*/
 
     // Deallocate matrices
     delete [] firstMatrix;
@@ -235,8 +246,7 @@ void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim)
     }
 }
 
-
-// Multiply two matrices using Strassen's algorithm and OpenMP/MPI
+// Multiply two matrices using Strassen's algorithm and OpenMP
 void StrassenMultOpenMP(double matrix1[], double matrix2[], double matrix3[],
                         int dim, int recursions)
 {
@@ -289,35 +299,25 @@ void StrassenMultOpenMP(double matrix1[], double matrix2[], double matrix3[],
         double* m5 = new double[numElements];        // matrix with result of Strassen's eq. 5
         double* m6 = new double[numElements];        // matrix with result of Strassen's eq. 6
         double* m7 = new double[numElements];        // matrix with result of Strassen's eq. 7
+        double* temp1 = new double[numElements];     // matix with intermediate results
+        double* temp2 = new double[numElements];     // matix with intermediate results
         double* quad1 = new double[numElements];     // top, left quadrant of matrix3
         double* quad2 = new double[numElements];     // top, right quadrant of matrix3
         double* quad3 = new double[numElements];     // bottom, left quadrant of matrix3
         double* quad4 = new double[numElements];     // bottom, right quadrant of matrix3
 
-#       pragma omp parallel num_threads(7)  // fork 7 threads
+        // Fill sub-matrices a-d from matrix1
+        FillSubmatrices(matrix1, dim, a, b, c, d, subDim);
+               
+        // Fill sub-matrices e-f from matrix2
+        FillSubmatrices(matrix2, dim, e, f, g, h, subDim);
+
+        // Find matrices m1-m7 with results for equations 1-7
+#       pragma omp parallel num_threads(7)   // fork 7 threads
         {
-#           pragma omp sections             // allow only one thread to execute a section
-            {
-#               pragma omp section
-                {
-                    // Fill sub-matrices a-d from matrix1
-                    FillSubmatrices(matrix1, dim, a, b, c, d, subDim);
-                }
-
-#               pragma omp section
-                {                  
-                    // Fill sub-matrices e-f from matrix2
-                    FillSubmatrices(matrix2, dim, e, f, g, h, subDim);
-                }                   
-            }
-
-            // Make sure all threads proceed together
-#           pragma omp barrier
-
-            // Find matrices m1-m7 with results for equations 1-7
             if (recursions > 0)
             {
-#               pragma omp sections
+#               pragma omp sections          // allow only one thread to execute a section
                 {
 #                   pragma omp section
                     {
@@ -462,46 +462,20 @@ void StrassenMultOpenMP(double matrix1[], double matrix2[], double matrix3[],
                     }
                 }
             }
-
-            // Make sure all threads proceed together
-#           pragma omp barrier
-
-            // Determine quadrants of matrix3 based on m1-m7
-#           pragma omp sections
-            {
-#               pragma omp section
-                {
-                    double* result1 = new double[numElements];  
-                    double* result2 = new double[numElements]; 
-                    AddMatrices(m5, m4, result1, subDim);                // m5+m4
-                    SubtractMatrices(result1, m2, result2, subDim);      // m5+m4-m2
-                    AddMatrices(result2, m6, quad1, subDim);             // m5+m4-m2+m6
-                    delete [] result1;
-                    delete [] result2;
-                }
-
-#               pragma omp section
-                {
-                    AddMatrices(m1, m2, quad2, subDim);                  // m1+m2
-                }
-
-#               pragma omp section
-                {
-                    AddMatrices(m3, m4, quad3, subDim);                  // m3+m4
-                }
-
-#               pragma omp section
-                {
-                    double* result1 = new double[numElements];   
-                    double* result2 = new double[numElements];   
-                    AddMatrices(m1, m5, result1, subDim);                // m1+m5
-                    SubtractMatrices(result1, m3, result2, subDim);      // m1+m5-m3
-                    SubtractMatrices(result2, m7, quad4, subDim);        // m1+m5-m3-m7
-                    delete [] result1;
-                    delete [] result2;
-                }
-            }
         }
+
+        // Determine quadrants of matrix3 based on m1-m7
+        AddMatrices(m5, m4, temp1, subDim);                // m5+m4
+        SubtractMatrices(temp1, m2, temp2, subDim);        // m5+m4-m2
+        AddMatrices(temp2, m6, quad1, subDim);             // m5+m4-m2+m6
+
+        AddMatrices(m1, m2, quad2, subDim);                // m1+m2
+
+        AddMatrices(m3, m4, quad3, subDim);                // m3+m4
+
+        AddMatrices(m1, m5, temp1, subDim);                // m1+m5
+        SubtractMatrices(temp1, m3, temp2, subDim);        // m1+m5-m3
+        SubtractMatrices(temp2, m7, quad4, subDim);        // m1+m5-m3-m7
 
         // Fill matrix3 from quadrants
         FillWithQuads(quad1, quad2, quad3, quad4, subDim, matrix3, dim);
@@ -522,6 +496,8 @@ void StrassenMultOpenMP(double matrix1[], double matrix2[], double matrix3[],
         delete [] m5;
         delete [] m6;
         delete [] m7;
+        delete [] temp1;
+        delete [] temp2;
         delete [] quad1;
         delete [] quad2;
         delete [] quad3;
