@@ -5,6 +5,11 @@ using OpenMP.
 The implementation will recursively use up to 56 threads if needed.  If more than one 
 recursive call to the matrix multiplication algorithm is required, a single thread will be
 used for subsequent calls.
+
+To compile/run in linux:
+mpicxx -std=c++11 -g -Wall -fopenmp -o openmp56 OpenMP56.cpp
+./openmp56 [dimension] [max integer]
+
 *******************************************************************************************/
 #include <iostream>
 #include <time.h>
@@ -299,8 +304,8 @@ void StrassenMultOpenMP(double matrix1[], double matrix2[], double matrix3[],
         double* m5 = new double[numElements];        // matrix with result of Strassen's eq. 5
         double* m6 = new double[numElements];        // matrix with result of Strassen's eq. 6
         double* m7 = new double[numElements];        // matrix with result of Strassen's eq. 7
-        double* temp1 = new double[numElements];     // matix with intermediate results
-        double* temp2 = new double[numElements];     // matix with intermediate results
+        double* temp1 = new double[numElements];     // matrix with intermediate results
+        double* temp2 = new double[numElements];     // matrix with intermediate results
         double* quad1 = new double[numElements];     // top, left quadrant of matrix3
         double* quad2 = new double[numElements];     // top, right quadrant of matrix3
         double* quad3 = new double[numElements];     // bottom, left quadrant of matrix3

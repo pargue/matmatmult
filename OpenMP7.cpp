@@ -1,14 +1,13 @@
 /*******************************************************************************************
 This algorithm is a parallel implementation of Strassen's matrix multiplication algorithm
-using MPI.  This program MUST be called with 56 nodes in the command line.
+using OpenMP.
 
-The implementation will recursively use up to the 56 nodes if needed.  If more than one 
-recursive call to the matrix multiplication algorithm is required, a single node will be
-used for subsequent calls.
+The implementation will use 7 threads if needed.  A single thread will be used for all
+recursive calls.
 
 To compile/run in linux:
-mpicxx -std=c++11 -g -Wall -o mpi56 MPI56.cpp
-mpirun -np 56 ./mpi56 [dimension] [max integer]
+mpicxx -std=c++11 -g -Wall -fopenmp -o openmp7 OpenMP7.cpp
+./openmp7 [dimension] [max integer]
 
 *******************************************************************************************/
 #include <iostream>
@@ -16,14 +15,12 @@ mpirun -np 56 ./mpi56 [dimension] [max integer]
 #include <iomanip>
 #include <string>
 #include <math.h>
-#include <mpi.h>
-#include <unistd.h>
+#include <omp.h>
 using namespace std;
 
 void FillMatrix(double matrix[], int dimension, int maxInt);
 void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim);
-void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[], 
-                        int dim, int my_rank, int startNode);
+void StrassenMultOpenMP(double matrix1[], double matrix2[], double matrix3[], int dim);
 void FillSubmatrices(double matrix[], int dim, double sub1[],
                      double sub2[], double sub3[], double sub4[],
                      int subDim);
@@ -36,7 +33,6 @@ void FillWithQuads(double quad1[], double quad2[], double quad3[],
 
 int main(int argc, char* argv[])
 {
-     int my_rank;                                    // node number
      int dim;                                        // row/col dim of input matrices
      int maxInt;                                     // number of possible element values
      double* firstMatrix = NULL;                     // first input matrix
@@ -44,8 +40,7 @@ int main(int argc, char* argv[])
      double* resultMatrix = NULL;                    // matrix mult result
      double startTime;                               // start of matrix mult
      double endTime;                                 // end of matrix mult
-     int startNode = 0;                              // first of 7 MPI nodes for 
-                                                     // StrassenMultMPI call
+
      // Check for correct argument count
      if (argc != 3)
      {
@@ -79,53 +74,25 @@ int main(int argc, char* argv[])
     // Initialize random number generator
     srand(time(NULL));
 
-    // Initialize MPI
-    if (MPI_Init(&argc,&argv) != MPI_SUCCESS)
-    {
-        printf("MPI-INIT Failed\n");
-        return 1;
-    }
-
-    // Get MPI rank
-    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-
-    if (my_rank == 0)
-    {
-        // Fill first matrix
-        FillMatrix(firstMatrix, dim, maxInt);
-
-        // Fill second matrix
-        FillMatrix(secondMatrix, dim, maxInt);
-    }
-
-    // Broadcast the two matrices to all nodes
-    MPI_Bcast(firstMatrix, dim*dim, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(secondMatrix, dim*dim, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
+    // Fill two matrices
+    FillMatrix(firstMatrix, dim, maxInt);
+    FillMatrix(secondMatrix, dim, maxInt);
 
     // Multiply the two matrices using Strassen's algorithm
-    MPI_Barrier(MPI_COMM_WORLD);                 // ensure all nodes start together
-    startTime = MPI_Wtime();
-    StrassenMultMPI(firstMatrix, secondMatrix, resultMatrix,
-                    dim, my_rank, startNode);
-    endTime = MPI_Wtime();
+    startTime = omp_get_wtime();
+    StrassenMultOpenMP(firstMatrix, secondMatrix, resultMatrix, dim);
+    endTime = omp_get_wtime();
 
     // Display results
-    if (my_rank == 0)
-    {
-        printf("\nMultiplication of dimension %d matrices took %f"
-               " seconds\n\n", dim, endTime - startTime);
+    printf("\nMultiplication of dimension %d matrices took %f"
+           " seconds\n\n", dim, endTime - startTime);
 
-        /*printf("first matrix:\n");
-        DisplayMatrix(firstMatrix, dim);
-        printf("second matrix:\n");
-        DisplayMatrix(secondMatrix, dim);
-        printf("result:\n");
-        DisplayMatrix(resultMatrix, dim);*/
-    }
-
-    // Finalize MPI
-    MPI_Finalize();
+    /*printf("first matrix:\n");
+    DisplayMatrix(firstMatrix, dim);
+    printf("second matrix:\n");
+    DisplayMatrix(secondMatrix, dim);
+    printf("result:\n");
+    DisplayMatrix(resultMatrix, dim);*/
 
     // Deallocate matrices
     delete [] firstMatrix;
@@ -276,13 +243,11 @@ void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim)
     }
 }
 
-
-// Multiply two matrices using Strassen's algorithm and MPI
-void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[], 
-                        int dim, int my_rank, int startNode)
+// Multiply two matrices using Strassen's algorithm and OpenMP
+void StrassenMultOpenMP(double matrix1[], double matrix2[], double matrix3[], int dim)
 {
     // Check for matrices with 1 element
-    if (dim == 1 && my_rank == 0)
+    if (dim == 1)
     {
         matrix3[0] = matrix1[0] * matrix2[0];      // only int multipication needed
     }
@@ -323,8 +288,6 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
         double* f = new double[numElements];         // top, right quadrant of matrix2
         double* g = new double[numElements];         // bottom, left quadrant of matrix2
         double* h = new double[numElements];         // bottom, right quadrant of matrix2
-        double* result1 = new double[numElements];   // the result of a sub-matrix operation
-        double* result2 = new double[numElements];   // the result of a sub-matrix operation
         double* m1 = new double[numElements];        // matrix with result of Strassen's eq. 1
         double* m2 = new double[numElements];        // matrix with result of Strassen's eq. 2
         double* m3 = new double[numElements];        // matrix with result of Strassen's eq. 3
@@ -332,291 +295,103 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
         double* m5 = new double[numElements];        // matrix with result of Strassen's eq. 5
         double* m6 = new double[numElements];        // matrix with result of Strassen's eq. 6
         double* m7 = new double[numElements];        // matrix with result of Strassen's eq. 7
+        double* temp1 = new double[numElements];     // matrix with intermediate results
+        double* temp2 = new double[numElements];     // matrix with intermediate results
         double* quad1 = new double[numElements];     // top, left quadrant of matrix3
         double* quad2 = new double[numElements];     // top, right quadrant of matrix3
         double* quad3 = new double[numElements];     // bottom, left quadrant of matrix3
         double* quad4 = new double[numElements];     // bottom, right quadrant of matrix3
 
-        // Fill sub-matrices a-h from matrix1 and matrix2
+        // Fill sub-matrices a-d from matrix1
         FillSubmatrices(matrix1, dim, a, b, c, d, subDim);
+               
+        // Fill sub-matrices e-f from matrix2
         FillSubmatrices(matrix2, dim, e, f, g, h, subDim);
 
         // Find matrices m1-m7 with results for equations 1-7
-        if (my_rank == startNode || 
-            ((my_rank >= (7+(7*startNode))) &&        // >= next-level start node
-             (my_rank <= (13+(7*startNode)))))        // <= next-level end node
+#       pragma omp parallel sections num_threads(7)  // fork 7 threads     
         {
-            if ((7+(7*startNode)) > 49)                // 49 is max next-level start node
+#           pragma omp section                       // allow only one thread per section
             {
+                double* result1 = new double[numElements];   
                 SubtractMatrices(f, h, result1, subDim);            // f-h
                 StrassenMult(a, result1, m1, subDim);               // a(f-h)
+                delete [] result1;
             }
-            else
-            {
-                if (my_rank != startNode)    // only next-level nodes should do recursive call
-                {
-                    SubtractMatrices(f, h, result1, subDim);              // f-h
-                    StrassenMultMPI(a, result1, m1, subDim, my_rank,      // a(f-h)
-                                    (7+(7*startNode)));    
-                }
-                if (my_rank == (7+(7*startNode)))         
-                    // Send m1 from next-level startNode to startNode
-                    MPI_Send(m1, subDim*subDim, MPI_DOUBLE, startNode,
-                             0, MPI_COMM_WORLD);
-                if (my_rank == startNode)
-                    // Receive m1
-                    MPI_Recv(m1, subDim*subDim, MPI_DOUBLE, 
-                             (7+(7*startNode)), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            }
-        }
 
-        if (my_rank == (startNode+1) ||
-            ((my_rank >= (7+(7*(startNode+1)))) &&        // >= next-level start node
-             (my_rank <= (13+(7*(startNode+1))))))        // <= next-level end node
-        {
-            if ((7+(7*(startNode+1))) > 49)                    // 49 is max next-level start node
+#           pragma omp section
             {
+                double* result1 = new double[numElements];  
                 AddMatrices(a, b, result1, subDim);                 // a+b
                 StrassenMult(result1, h, m2, subDim);               // (a+b)h
-                MPI_Send(m2, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
+                delete [] result1;
             }
-            else
-            {
-                if (my_rank != (startNode+1))    // only next-level nodes should do recursive call
-                {
-                    AddMatrices(a, b, result1, subDim);                 // a+b
-                    StrassenMultMPI(result1, h, m2, subDim, my_rank,    // (a+b)h
-                                    (7+(7*(startNode+1)))); 
-                }
-                if (my_rank == (7+(7*(startNode+1))))
-                    // Send m2 from next-level startNode to startNode+1
-                    MPI_Send(m2, subDim*subDim, MPI_DOUBLE, (startNode+1),
-                             0, MPI_COMM_WORLD);
-                if (my_rank == (startNode+1))
-                {   // Receive m2 from next-level startNode
-                    MPI_Recv(m2, subDim*subDim, MPI_DOUBLE,
-                             (7+(7*(startNode+1))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    // Send m2 to current startNode
-                    MPI_Send(m2, subDim*subDim, MPI_DOUBLE, startNode,
-                             0, MPI_COMM_WORLD);
-                }
-            }
-        }
 
-
-        if (my_rank == (startNode+2) ||
-            ((my_rank >= (7+(7*(startNode+2)))) &&        // >= next-level start node
-             (my_rank <= (13+(7*(startNode+2))))))        // <= next-level end node
-        {
-            if ((7+(7*(startNode+2))) > 49)                    // 49 is max next-level start node
+#           pragma omp section
             {
+                double* result1 = new double[numElements];   
                 AddMatrices(c, d, result1, subDim);                  // c+d
                 StrassenMult(result1, e, m3, subDim);                // (c+d)e
-                MPI_Send(m3, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
+                delete [] result1;
             }
-            else
-            {
-                if (my_rank != (startNode+2))    // only next-level nodes should do recursive call
-                {
-                    AddMatrices(c, d, result1, subDim);                  // c+d
-                    StrassenMultMPI(result1, e, m3, subDim, my_rank,     // (c+d)e
-                                    (7+(7*(startNode+2))));
-                }
-                if (my_rank == (7+(7*(startNode+2))))
-                    // Send m3 from next-level startNode to startNode+2
-                    MPI_Send(m3, subDim*subDim, MPI_DOUBLE, (startNode+2),
-                             0, MPI_COMM_WORLD);
-                if (my_rank == (startNode+2))
-                {
-                    // Receive m3 from next-level startNode
-                    MPI_Recv(m3, subDim*subDim, MPI_DOUBLE,
-                             (7+(7*(startNode+2))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    // Send m3 to current startNode
-                    MPI_Send(m3, subDim*subDim, MPI_DOUBLE, startNode,
-                             0, MPI_COMM_WORLD);
-                }
-            }
-        }
 
-        if (my_rank == (startNode+3) ||
-            ((my_rank >= (7+(7*(startNode+3)))) &&        // >= next-level start node
-             (my_rank <= (13+(7*(startNode+3))))))        // <= next-level end node
-        {
-            if ((7+(7*(startNode+3))) > 49)                    // 49 is max next-level start node
+#           pragma omp section
             {
+                double* result1 = new double[numElements];   
                 SubtractMatrices(g, e, result1, subDim);             // g-e
                 StrassenMult(d, result1, m4, subDim);                // d(g-e)
-                MPI_Send(m4, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
+                delete [] result1;
             }
-            else
-            {
-                 if (my_rank != (startNode+3))    // only next-level nodes should do recursive call
-                 {
-                      SubtractMatrices(g, e, result1, subDim);             // g-e
-                      StrassenMultMPI(d, result1, m4, subDim, my_rank,     // d(g-e)
-                                      (7+(7*(startNode+3))));
-                 }
-                 if (my_rank == (7+(7*(startNode+3))))
-                    // Send m4 from next-level startNode to startNode+3
-                    MPI_Send(m4, subDim*subDim, MPI_DOUBLE, (startNode+3),
-                             0, MPI_COMM_WORLD);
-                 if (my_rank == (startNode+3))
-                {
-                    // Receive m4 from next-level startNode
-                    MPI_Recv(m4, subDim*subDim, MPI_DOUBLE,
-                             (7+(7*(startNode+3))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    // Send m4 to current startNode
-                    MPI_Send(m4, subDim*subDim, MPI_DOUBLE, startNode,
-                             0, MPI_COMM_WORLD);
-                 }
-            }
-        }
 
-        if (my_rank == (startNode+4) ||
-            ((my_rank >= (7+(7*(startNode+4)))) &&        // >= next-level start node
-             (my_rank <= (13+(7*(startNode+4))))))        // <= next-level end node
-        {
-             if ((7+(7*(startNode+4))) > 49)                    // 49 is max next-level start node
-             {
+#           pragma omp section
+            {
+                double* result1 = new double[numElements]; 
+                double* result2 = new double[numElements];   
                 AddMatrices(a, d, result1, subDim);                  // a+d
                 AddMatrices(e, h, result2, subDim);                  // e+h
                 StrassenMult(result1, result2, m5, subDim);          // (a+d)(e+h)
-                MPI_Send(m5, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
-             }
-             else
-             {
-                 if (my_rank != (startNode+4))    // only next-level nodes should do recursive call
-                 {
-                     AddMatrices(a, d, result1, subDim);                     // a+d
-                     AddMatrices(e, h, result2, subDim);                     // e+h
-                     StrassenMultMPI(result1, result2, m5, subDim, my_rank,  // (a+d)(e+h)
-                                     (7+(7*(startNode+4))));
-                 }
-                  if (my_rank == (7+(7*(startNode+4))))
-                    // Send m5 from next-level startNode to startNode+4
-                    MPI_Send(m5, subDim*subDim, MPI_DOUBLE, (startNode+4),
-                             0, MPI_COMM_WORLD);
-                  if (my_rank == (startNode+4))
-                  {
-                      // Receive m5 from next-level startNode
-                      MPI_Recv(m5, subDim*subDim, MPI_DOUBLE,
-                               (7+(7*(startNode+4))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                      // Send m5 to current startNode
-                      MPI_Send(m5, subDim*subDim, MPI_DOUBLE, startNode,
-                               0, MPI_COMM_WORLD);
-                  }
-             }
-        }
+                delete [] result1;
+                delete [] result2;
+            }
 
-        if (my_rank == (startNode+5) ||
-            ((my_rank >= (7+(7*(startNode+5)))) &&        // >= next-level start node
-             (my_rank <= (13+(7*(startNode+5))))))        // <= next-level end node
-        {
-            if ((7+(7*(startNode+5))) > 49)                    // 49 is max next-level start node
+#           pragma omp section
             {
+                double* result1 = new double[numElements];  
+                double* result2 = new double[numElements];   
                 SubtractMatrices(b, d, result1, subDim);             // b-d
                 AddMatrices(g, h, result2, subDim);                  // g+h
                 StrassenMult(result1, result2, m6, subDim);          // (b-d)(g+h)
-                MPI_Send(m6, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
+                delete [] result1;
+                delete [] result2;
             }
-            else
-            {
-                if (my_rank != (startNode+5))    // only next-level nodes should do recursive call
-                {
-                    SubtractMatrices(b, d, result1, subDim);               // b-d
-                    AddMatrices(g, h, result2, subDim);                    // g+h
-                    StrassenMultMPI(result1, result2, m6, subDim, my_rank, // (b-d)(g+h)
-                                    (7+(7*(startNode+5))));
-                }
-                if (my_rank == (7+(7*(startNode+5))))
-                    // Send m6 from next-level startNode to startNode+5
-                    MPI_Send(m6, subDim*subDim, MPI_DOUBLE, (startNode+5),
-                             0, MPI_COMM_WORLD);
-                if (my_rank == (startNode+5))
-                {
-                      // Receive m6 from next-level startNode
-                      MPI_Recv(m6, subDim*subDim, MPI_DOUBLE,
-                               (7+(7*(startNode+5))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                      // Send m6 to current startNode
-                      MPI_Send(m6, subDim*subDim, MPI_DOUBLE, startNode,
-                               0, MPI_COMM_WORLD);
-                }
-            }
-        }
 
-        if (my_rank == (startNode+6) ||
-                 ((my_rank >= (7+(7*(startNode+6)))) &&        // >= next-level start node
-                  (my_rank <= (13+(7*(startNode+6))))))        // <= next-level end node
-        {
-            if ((7+(7*(startNode+6))) > 49)                    // 49 is max next-level start node
+#           pragma omp section
             {
+                double* result1 = new double[numElements];
+                double* result2 = new double[numElements];  
                 SubtractMatrices(a, c, result1, subDim);             // a-c
                 AddMatrices(e, f, result2, subDim);                  // e+f
                 StrassenMult(result1, result2, m7, subDim);          // (a-c)(e+f)
-                MPI_Send(m7, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
-            }
-            else
-            {
-                if (my_rank != (startNode+6))    // only next-level nodes should do recursive call
-                {
-                    SubtractMatrices(a, c, result1, subDim);                // a-c
-                    AddMatrices(e, f, result2, subDim);                     // e+f
-                    StrassenMultMPI(result1, result2, m7, subDim, my_rank,  // (a-c)(e+f)
-                                    (7+(7*(startNode+6))));
-                }
-                if (my_rank == (7+(7*(startNode+6))))
-                    // Send m7 from next-level startNode to startNode+6
-                    MPI_Send(m7, subDim*subDim, MPI_DOUBLE, (startNode+6),
-                             0, MPI_COMM_WORLD);
-                if (my_rank == (startNode+6))
-                {
-                      // Receive m7 from next-level startNode
-                      MPI_Recv(m7, subDim*subDim, MPI_DOUBLE,
-                               (7+(7*(startNode+6))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                      // Send m7 to current startNode
-                      MPI_Send(m7, subDim*subDim, MPI_DOUBLE, startNode,
-                               0, MPI_COMM_WORLD);
-                }
+                delete [] result1;
+                delete [] result2;
             }
         }
 
-        if (my_rank == startNode)
-        {
-            // Receive m2-m7
-            MPI_Recv(m2, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+1), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        // Determine quadrants of matrix3 based on m1-m7
+        AddMatrices(m5, m4, temp1, subDim);                // m5+m4
+        SubtractMatrices(temp1, m2, temp2, subDim);        // m5+m4-m2
+        AddMatrices(temp2, m6, quad1, subDim);             // m5+m4-m2+m6
 
-            MPI_Recv(m3, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+2), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        AddMatrices(m1, m2, quad2, subDim);                // m1+m2
 
-            MPI_Recv(m4, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+3), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        AddMatrices(m3, m4, quad3, subDim);                // m3+m4
 
-            MPI_Recv(m5, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+4), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        AddMatrices(m1, m5, temp1, subDim);                // m1+m5
+        SubtractMatrices(temp1, m3, temp2, subDim);        // m1+m5-m3
+        SubtractMatrices(temp2, m7, quad4, subDim);        // m1+m5-m3-m7
 
-            MPI_Recv(m6, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+5), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-            MPI_Recv(m7, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+6), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-            // Determine quadrants of matrix3 based on m1-m7
-            AddMatrices(m5, m4, result1, subDim);                // m5+m4
-            SubtractMatrices(result1, m2, result2, subDim);      // m5+m4-m2
-            AddMatrices(result2, m6, quad1, subDim);             // m5+m4-m2+m6
-
-            AddMatrices(m1, m2, quad2, subDim);                  // m1+m2
-
-            AddMatrices(m3, m4, quad3, subDim);                  // m3+m4
-
-            AddMatrices(m1, m5, result1, subDim);                // m1+m5
-            SubtractMatrices(result1, m3, result2, subDim);      // m1+m5-m3
-            SubtractMatrices(result2, m7, quad4, subDim);        // m1+m5-m3-m7
-
-            // Fill matrix3 from quadrants
-            FillWithQuads(quad1, quad2, quad3, quad4, subDim, matrix3, dim);
-        }
+        // Fill matrix3 from quadrants
+        FillWithQuads(quad1, quad2, quad3, quad4, subDim, matrix3, dim);
 
         // Deallocate sub-matrices
         delete [] a;
@@ -627,8 +402,6 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
         delete [] f;
         delete [] g;
         delete [] h;
-        delete [] result1;
-        delete [] result2;
         delete [] m1;
         delete [] m2;
         delete [] m3;
@@ -636,6 +409,8 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
         delete [] m5;
         delete [] m6;
         delete [] m7;
+        delete [] temp1;
+        delete [] temp2;
         delete [] quad1;
         delete [] quad2;
         delete [] quad3;
