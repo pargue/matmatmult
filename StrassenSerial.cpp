@@ -1,14 +1,16 @@
 /*******************************************************************************************
-author: Tyler Nowak
-date:   11/13/2016
-
 This algorithm is a serial implementation of Strassen's matrix multiplication algorithm.
+
+To compile/run in linux:
+mpicxx -std=c++11 -g -Wall -o serial StrassenSerial.cpp
+./serial [dimension] [max integer]
 *******************************************************************************************/
 #include <iostream>
 #include <time.h>
 #include <iomanip>
 #include <string>
 #include <math.h>
+#include <chrono>
 using namespace std;
 
 void FillMatrix(double matrix[], int dimension, int maxInt);
@@ -70,20 +72,24 @@ int main(int argc, char* argv[])
     FillMatrix(secondMatrix, dim, maxInt);
 
     // Multiply the two matrices using Strassen's algorithm
+    chrono::high_resolution_clock::time_point startTime =     // time before matrix mult
+        chrono::high_resolution_clock::now();
     StrassenMult(firstMatrix, secondMatrix, resultMatrix, dim);
+    chrono::high_resolution_clock::time_point endTime =       // time after matrix mult
+        chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsedTime =                    // elapsed time
+        chrono::duration_cast<chrono::duration<double>>(endTime - startTime);
 
-    // Display first matrix
-    cout << "First matrix:\n";
+    // Display results
+    printf("\nMultiplication of dimension %d matrices took %f"
+           " seconds\n\n", dim, elapsedTime.count());
+
+    /*printf("first matrix:\n");
     DisplayMatrix(firstMatrix, dim);
-
-    // Display second matrix
-    cout << "\n\nSecond matrix:\n";
+    printf("second matrix:\n");
     DisplayMatrix(secondMatrix, dim);
-
-    // Display result matrix
-    cout << "\n\nResult matrix:\n";
-    DisplayMatrix(resultMatrix, dim);
-    cout << endl;
+    printf("result:\n");
+    DisplayMatrix(resultMatrix, dim);*/
 
     // Deallocate matrices
     delete [] firstMatrix;
@@ -96,8 +102,12 @@ int main(int argc, char* argv[])
 // Fill a matrix of a specified dimension with random integers 
 void FillMatrix(double matrix[], int dim, int maxInt)
 {
-    for (int i=0; i<(dim*dim); i++)
-        matrix[i] = rand() % maxInt;                  // 0 <= matrix element < maxInt
+    if (maxInt == 0)
+        for (int i=0; i<(dim*dim); i++)
+            matrix[i] = 1;
+    else
+        for (int i=0; i<(dim*dim); i++)
+            matrix[i] = rand() % maxInt;                  // 0 <= matrix element < maxInt
 }
 
 // Multiply two matrices using Strassen's algorithm
