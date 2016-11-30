@@ -360,7 +360,7 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                                     (7+(7*startNode)));    
                 }
                 if (my_rank == (7+(7*startNode)))         
-                    // Send m1 from next-level startNode to startNode
+                    // Send m1 from next-level startNode to current startNode
                     MPI_Send(m1, subDim*subDim, MPI_DOUBLE, startNode,
                              0, MPI_COMM_WORLD);
                 if (my_rank == startNode)
@@ -378,6 +378,7 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
             {
                 AddMatrices(a, b, result1, subDim);                 // a+b
                 StrassenMult(result1, h, m2, subDim);               // (a+b)h
+                // Send m2 from startNode+1 to current startNode
                 MPI_Send(m2, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
             }
             else
@@ -389,17 +390,9 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                                     (7+(7*(startNode+1)))); 
                 }
                 if (my_rank == (7+(7*(startNode+1))))
-                    // Send m2 from next-level startNode to startNode+1
-                    MPI_Send(m2, subDim*subDim, MPI_DOUBLE, (startNode+1),
-                             0, MPI_COMM_WORLD);
-                if (my_rank == (startNode+1))
-                {   // Receive m2 from next-level startNode
-                    MPI_Recv(m2, subDim*subDim, MPI_DOUBLE,
-                             (7+(7*(startNode+1))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    // Send m2 to current startNode
+                    // Send m2 from next-level startNode to current startNode
                     MPI_Send(m2, subDim*subDim, MPI_DOUBLE, startNode,
                              0, MPI_COMM_WORLD);
-                }
             }
         }
 
@@ -412,6 +405,7 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
             {
                 AddMatrices(c, d, result1, subDim);                  // c+d
                 StrassenMult(result1, e, m3, subDim);                // (c+d)e
+                // Send m3 from startNode+2 to current startNode
                 MPI_Send(m3, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
             }
             else
@@ -423,18 +417,9 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                                     (7+(7*(startNode+2))));
                 }
                 if (my_rank == (7+(7*(startNode+2))))
-                    // Send m3 from next-level startNode to startNode+2
-                    MPI_Send(m3, subDim*subDim, MPI_DOUBLE, (startNode+2),
-                             0, MPI_COMM_WORLD);
-                if (my_rank == (startNode+2))
-                {
-                    // Receive m3 from next-level startNode
-                    MPI_Recv(m3, subDim*subDim, MPI_DOUBLE,
-                             (7+(7*(startNode+2))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    // Send m3 to current startNode
+                    // Send m3 from next-level startNode to current startNode
                     MPI_Send(m3, subDim*subDim, MPI_DOUBLE, startNode,
                              0, MPI_COMM_WORLD);
-                }
             }
         }
 
@@ -446,6 +431,7 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
             {
                 SubtractMatrices(g, e, result1, subDim);             // g-e
                 StrassenMult(d, result1, m4, subDim);                // d(g-e)
+                // Send m4 from startNode+3 to current startNode
                 MPI_Send(m4, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
             }
             else
@@ -457,18 +443,9 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                                       (7+(7*(startNode+3))));
                  }
                  if (my_rank == (7+(7*(startNode+3))))
-                    // Send m4 from next-level startNode to startNode+3
-                    MPI_Send(m4, subDim*subDim, MPI_DOUBLE, (startNode+3),
-                             0, MPI_COMM_WORLD);
-                 if (my_rank == (startNode+3))
-                {
-                    // Receive m4 from next-level startNode
-                    MPI_Recv(m4, subDim*subDim, MPI_DOUBLE,
-                             (7+(7*(startNode+3))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    // Send m4 to current startNode
+                    // Send m4 from next-level startNode to current startNode
                     MPI_Send(m4, subDim*subDim, MPI_DOUBLE, startNode,
                              0, MPI_COMM_WORLD);
-                 }
             }
         }
 
@@ -481,6 +458,7 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                 AddMatrices(a, d, result1, subDim);                  // a+d
                 AddMatrices(e, h, result2, subDim);                  // e+h
                 StrassenMult(result1, result2, m5, subDim);          // (a+d)(e+h)
+                // Send m5 from startNode+4 to current startNode
                 MPI_Send(m5, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
              }
              else
@@ -493,18 +471,9 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                                      (7+(7*(startNode+4))));
                  }
                   if (my_rank == (7+(7*(startNode+4))))
-                    // Send m5 from next-level startNode to startNode+4
-                    MPI_Send(m5, subDim*subDim, MPI_DOUBLE, (startNode+4),
+                    // Send m5 from next-level startNode to current startNode
+                    MPI_Send(m5, subDim*subDim, MPI_DOUBLE, startNode,
                              0, MPI_COMM_WORLD);
-                  if (my_rank == (startNode+4))
-                  {
-                      // Receive m5 from next-level startNode
-                      MPI_Recv(m5, subDim*subDim, MPI_DOUBLE,
-                               (7+(7*(startNode+4))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                      // Send m5 to current startNode
-                      MPI_Send(m5, subDim*subDim, MPI_DOUBLE, startNode,
-                               0, MPI_COMM_WORLD);
-                  }
              }
         }
 
@@ -517,6 +486,7 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                 SubtractMatrices(b, d, result1, subDim);             // b-d
                 AddMatrices(g, h, result2, subDim);                  // g+h
                 StrassenMult(result1, result2, m6, subDim);          // (b-d)(g+h)
+                // Send m6 from startNode+5 to current startNode
                 MPI_Send(m6, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
             }
             else
@@ -529,18 +499,9 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                                     (7+(7*(startNode+5))));
                 }
                 if (my_rank == (7+(7*(startNode+5))))
-                    // Send m6 from next-level startNode to startNode+5
-                    MPI_Send(m6, subDim*subDim, MPI_DOUBLE, (startNode+5),
+                    // Send m6 from next-level startNode to current startNode
+                    MPI_Send(m6, subDim*subDim, MPI_DOUBLE, startNode,
                              0, MPI_COMM_WORLD);
-                if (my_rank == (startNode+5))
-                {
-                      // Receive m6 from next-level startNode
-                      MPI_Recv(m6, subDim*subDim, MPI_DOUBLE,
-                               (7+(7*(startNode+5))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                      // Send m6 to current startNode
-                      MPI_Send(m6, subDim*subDim, MPI_DOUBLE, startNode,
-                               0, MPI_COMM_WORLD);
-                }
             }
         }
 
@@ -553,6 +514,7 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                 SubtractMatrices(a, c, result1, subDim);             // a-c
                 AddMatrices(e, f, result2, subDim);                  // e+f
                 StrassenMult(result1, result2, m7, subDim);          // (a-c)(e+f)
+                // Send m7 from startNode+6 to current startNode
                 MPI_Send(m7, subDim*subDim, MPI_DOUBLE, startNode, 0, MPI_COMM_WORLD);
             }
             else
@@ -565,18 +527,9 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
                                     (7+(7*(startNode+6))));
                 }
                 if (my_rank == (7+(7*(startNode+6))))
-                    // Send m7 from next-level startNode to startNode+6
-                    MPI_Send(m7, subDim*subDim, MPI_DOUBLE, (startNode+6),
+                    // Send m7 from next-level startNode to current startNode
+                    MPI_Send(m7, subDim*subDim, MPI_DOUBLE, startNode,
                              0, MPI_COMM_WORLD);
-                if (my_rank == (startNode+6))
-                {
-                      // Receive m7 from next-level startNode
-                      MPI_Recv(m7, subDim*subDim, MPI_DOUBLE,
-                               (7+(7*(startNode+6))), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                      // Send m7 to current startNode
-                      MPI_Send(m7, subDim*subDim, MPI_DOUBLE, startNode,
-                               0, MPI_COMM_WORLD);
-                }
             }
         }
 
@@ -584,22 +537,22 @@ void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[],
         {
             // Receive m2-m7
             MPI_Recv(m2, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+1), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             MPI_Recv(m3, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+2), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             MPI_Recv(m4, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+3), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             MPI_Recv(m5, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+4), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             MPI_Recv(m6, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+5), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             MPI_Recv(m7, subDim*subDim, MPI_DOUBLE, 
-                     (startNode+6), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Determine quadrants of matrix3 based on m1-m7
             AddMatrices(m5, m4, result1, subDim);                // m5+m4
