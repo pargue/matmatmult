@@ -44,9 +44,10 @@ elements will be 0.
 }*/
 
 //parallel matrix multiplication kernel
-__global__ void pmultiply(int* g_a, int* g_b, int* g_d , int dim)
+__global__ void pmultiply(double* g_a, double* g_b, double* g_d , int dim)
 {
-  int z, sum = 0;
+  int z;
+  double sum = 0.0;
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -58,15 +59,16 @@ __global__ void pmultiply(int* g_a, int* g_b, int* g_d , int dim)
   g_d[(x * dim) + y] = sum;
 }
 
-extern "C" void Cudamultiply(int* a, int* b, int* c, int Dim)
+extern "C" void Cudamultiply(double* a, double* b, double* d, int Dim)
 {
-  
-  int i, *g_a, *g_b, *g_c, *g_d;
-  int g_size = Dim * Dim * sizeof(int);
+//  double *d;
+  int i;
+  double *g_a, *g_b, *g_d;
+  int g_size = Dim * Dim * sizeof(double);
   cudaEvent_t start, stop;
   float time; 
 
- 
+//  d=new double[Dim*Dim];
 
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
@@ -79,8 +81,8 @@ extern "C" void Cudamultiply(int* a, int* b, int* c, int Dim)
   cudaMalloc(&g_b, g_size);
   cudaMemcpy(g_b, b, g_size, cudaMemcpyHostToDevice);
   
-  cudaMalloc(&g_c, g_size);
-  cudaMemcpy(g_c, c, g_size, cudaMemcpyHostToDevice);
+//  cudaMalloc(&g_c, g_size);
+//  cudaMemcpy(g_c, c, g_size, cudaMemcpyHostToDevice);
 
   dim3 dimGrid((Dim / THREADS_PER_BLOCK), (Dim / THREADS_PER_BLOCK));
   //create the needed number of grids
@@ -96,9 +98,9 @@ extern "C" void Cudamultiply(int* a, int* b, int* c, int Dim)
   cudaEventElapsedTime(&time, start, stop);
   //get run time
 
-  cudaMemcpy(c, g_c, g_size, cudaMemcpyDeviceToHost);
+//  cudaMemcpy(c, g_c, g_size, cudaMemcpyDeviceToHost);
   //copy results back to host device
-  cudaFree(g_c);  
+//  cudaFree(g_c);  
   //free up unused user allocated memory on Cuda device
 
   printf("Time = %f milliseconds\n", time);
@@ -133,29 +135,30 @@ extern "C" void Cudamultiply(int* a, int* b, int* c, int Dim)
   the results are correct. This section can be commented 
   out when the user only wants the timing of a run.*/
 
-  for (i = 1; i <= Dim * Dim; ++ i)
-  {
-      if (i % Dim == 0)
-      {
-        printf("%d ", c[i-1]);
-	printf("\n");
-      }
-   
-      else
-        printf("%d ", c[i-1]);
-  }
+//  for (i = 1; i <= Dim * Dim; ++ i)
+//  {
+//      if (i % Dim == 0)
+//      {
+////        printf("%f ", c[i-1]);
+//	printf("\n");
+//      }
+//   
+//      else
+////        printf("%f ", c[i-1]);
+//  }
 
   printf("\n");
 
-  for (i = 1; i <= Dim * Dim; ++ i)
-  {
-    if ( i % Dim == 0)
-    {
-     printf("%d ", d[i-1]);
-     printf("\n");
-    }
-
-    else
-     printf("%d ", d[i-1]);
-  }
+//  for (i = 1; i <= Dim * Dim; ++ i)
+//  {
+//    if ( i % Dim == 0)
+//    {
+//     printf("%f ", d[i-1]);
+//     printf("\n");
+//    }
+//
+//    else
+//     printf("%f ", d[i-1]);
+//  }
+//  delete d;
 }

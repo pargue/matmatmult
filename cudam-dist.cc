@@ -23,7 +23,7 @@ void SubtractMatrices(double matrix1[], double matrix2[], double matrix3[], int 
 void DisplayMatrix(double matrix[], int dim);
 void FillWithQuads(double quad1[], double quad2[], double quad3[],
                    double quad4[], int subDim, double matrix[], int dim);
-
+extern "C" void Cudamultiply(double* a, double* b, double* c, int Dim);
 
 int main(int argc, char* argv[])
 {
@@ -92,23 +92,23 @@ int main(int argc, char* argv[])
     // Multiply the two matrices using Strassen's algorithm
     StrassenMultMPI(firstMatrix, secondMatrix, resultMatrix, dim);
 
-//    if (my_rank == 0)
-//    {
-//        sleep(my_rank);
-//        printf("my_rank:%d\n", my_rank);
-//        // Display first matrix
-//        cout << "First matrix:\n";
-//        DisplayMatrix(firstMatrix, dim);
-//
-//        // Display second matrix
-//        cout << "\n\nSecond matrix:\n";
-//        DisplayMatrix(secondMatrix, dim);
-//
-//        // Display result matrix
-//        cout << "\n\nResult matrix:\n";
-//        DisplayMatrix(resultMatrix, dim);
-//        cout << endl;
-//    }
+    if (my_rank == 0)
+    {
+        sleep(my_rank);
+        printf("my_rank:%d\n", my_rank);
+        // Display first matrix
+        cout << "First matrix:\n";
+        DisplayMatrix(firstMatrix, dim);
+
+        // Display second matrix
+        cout << "\n\nSecond matrix:\n";
+        DisplayMatrix(secondMatrix, dim);
+
+        // Display result matrix
+        cout << "\n\nResult matrix:\n";
+        DisplayMatrix(resultMatrix, dim);
+        cout << endl;
+    }
 
     MPI_Finalize();
     // Deallocate matrices
@@ -162,9 +162,13 @@ void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim)
         matrix3[1] = p1 + p2;
         matrix3[2] = p3 + p4;
         matrix3[3] = p1 + p5 - p3 - p7;
+        return;
     }
     if(dim <= 128)
     {
+        printf("dim %d\n", dim);
+        Cudamultiply(matrix1, matrix2, matrix3, dim);
+#if 0
         int subDim = dim / 2;                        // dim for each quadrant of the matrices
         int numElements = subDim * subDim;           // number of elements in sub-matrices
 
@@ -257,7 +261,7 @@ void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim)
         delete [] quad2;
         delete [] quad3;
         delete [] quad4;
-
+#endif
 
     }
     else
@@ -360,7 +364,7 @@ void StrassenMult(double matrix1[], double matrix2[], double matrix3[], int dim)
 
 
 //Combintion Cuda as 
-void StrassnMultCuda(double* matrix1,double* matrix2,double* matrix3, int dim)
+void StrassnMultCuda(double* matrix1,double* matrix2,double* matrix3, int dim);
 
 // Multiply two matrices using Strassen's algorithm
 void StrassenMultMPI(double matrix1[], double matrix2[], double matrix3[], int dim)
