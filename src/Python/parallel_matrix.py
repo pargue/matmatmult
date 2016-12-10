@@ -1,5 +1,24 @@
 #!/usr/bin/env python3
 
+"""
+AUTHOR: Cody Kankel
+PROG: Parallel_matrix.py
+DESC: This is a Python 3 script which requires mpi4py, to implement 
+Strassen's Algorthm for multiplying 2 matricies in parallel. This script
+will take in a matrix from the cmd line stored as a csv file, and multiply
+the matrix by itself by reading in the matrix twice into two separate
+variables. This script can only use 7 nodes efficiently as there are 7 clear
+defined operations in Strassen's Algorthim which are used in this script ideally
+on separate nodes. Ex:
+    mpirun -np 7 parallel_matrix.py csv/5192_5192.csv
+The numpy module is used to calculate the dot product of the separate portions
+of the matrix, as it uses portions of BLAS (Basic Linear Algebra Subroutines).
+If IU's systems have numpy compilied which allows this feature, numpy will
+take advantage of mutlicore machines and run in parallel utilizing the different
+cores available.
+"""
+
+
 import numpy, sys, csv, math
 from mpi4py import MPI
 
@@ -22,14 +41,6 @@ def main():
         
         matrix_A = get_matrix(str(sys.argv[1]))
         matrix_B = get_matrix(str(sys.argv[1]))
-        
-        print('Matrix A is:')
-        print(matrix_A )
-        print('Matrix B is:')
-        print(matrix_B)
-        print('-'.center(40,'-'))
-        print('The correct product of these matrices is:')
-        print(numpy.dot(matrix_A, matrix_B))
     
         if matrix_A.shape != matrix_B.shape:
             print('Error: Matrix A and Matrix B are not the same size Matrix.')
@@ -41,6 +52,7 @@ def main():
             print("error")
             sys.exit()
         a_subSize = comm.bcast(a_subSize, root=0)
+        startTime = MPI.Wtime()
 
         
     else:
@@ -53,8 +65,11 @@ def main():
     matrix_C = strassen(matrix_A, matrix_B, a_subSize)
     
     if rank == 0:
-        print("Matrix C, after strassen is:")
-        print(matrix_C)
+        runTime = MPI.Wtime() - startTime
+        
+        #print("Matrix C, after strassen is:")
+        #print(matrix_C)
+        print("The time to calculate strassen function in parallel is:\n", runTime)
 
     sys.exit()
 
@@ -75,12 +90,15 @@ def get_matrix(fileName):
     
 def strassen(A, B, subSize):
     """Function to perform the strassen algorithm on 2 numpy matricies specified as
-    A and B. The function will (hopefully eventually) return the dot product of these two matricies
+    A and B. The function will return the dot product of these two matricies
     as a numpy.array matrix."""
     
     
     if rank == 0:
-
+    
+    
+        startTime = MPI.Wtime()
+        
         # Rank 0 is the master, so it will prepare everything to be parallelized
         a_11 = A[0:subSize, 0:subSize]
         a_11 = numpy.ascontiguousarray(a_11)
