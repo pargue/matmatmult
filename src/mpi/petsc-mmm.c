@@ -9,8 +9,8 @@
 #include <petscmat.h>
 #include <petscksp.h>
 #include <petscsys.h>
-#include <petscsys.h>
 #include <petscviewer.h>
+#include <petsctime.h>
 
 static char help[] = "Matrix Multiplication\n";
 
@@ -29,9 +29,13 @@ PetscErrorCode pm__MatMatMult(struct mats *sm)
 
 int main(int argc, char **argv)
 {
+    PetscScalar    *vals;
+    PetscScalar    *zvals;
+    PetscInt       *idxn;
+    PetscLogDouble v1,v2,elapsed_time;
     int rank;
 #if defined(PETSC_USE_LOG)
-    PetscLogEvent  MAT_GENERATE;
+    PetscLogEvent  MAT_GENERATE,MAT_MULT;
 #endif
 
     PetscInt size = 4;
@@ -63,19 +67,31 @@ int main(int argc, char **argv)
     MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
     if (rank==0)
     {
-        int i,j;
-        for (i=0; i<my_mats.nx; i++) {
-            for (j=0; j<my_mats.ny; j++) {
-                MatSetValue(my_mats.A,i,j,1, INSERT_VALUES);
-                MatSetValue(my_mats.B,i,j,1, INSERT_VALUES);
-            }
+        PetscMalloc(my_mats.nx * sizeof(vals[0]), &vals);
+        PetscMalloc(my_mats.nx * sizeof(idxn[0]), &idxn);
+        PetscMalloc(my_mats.nx * sizeof(vals[0]), &zvals);
+        int i;
+//        int j;
+        int x;
+        for (x=0; x<my_mats.nx; x++) {
+            vals[x] = 1.0;
+            zvals[x] = 0.0;
+            idxn[x]=x;
         }
+        for (i=0; i<my_mats.ny; i++) {
+//            MatSetValues(Mat mat,PetscInt m,const PetscInt idxm[],PetscInt n,const PetscInt idxn[],const PetscScalar v[],InsertMode addv)
+            MatSetValues(my_mats.A /*mat*/, 1/*m*/, &i /*idxm[]*/, my_mats.nx /*n*/, idxn, vals /*v[]*/, INSERT_VALUES);
+            MatSetValues(my_mats.B /*mat*/, 1/*m*/, &i /*idxm[]*/, my_mats.nx /*n*/, idxn, zvals /*v[]*/, INSERT_VALUES);
+        }
+
     }
     MatAssemblyBegin(my_mats.A,MAT_FINAL_ASSEMBLY);
     MatAssemblyEnd(my_mats.A,MAT_FINAL_ASSEMBLY);
     MatAssemblyBegin(my_mats.B,MAT_FINAL_ASSEMBLY);
     MatAssemblyEnd(my_mats.B,MAT_FINAL_ASSEMBLY);
+#if defined(PETSC_USE_LOG)
     PetscLogEventEnd(MAT_GENERATE,0,0,0,0);
+#endif
 
     if (isViewMat)
     {
@@ -83,15 +99,37 @@ int main(int argc, char **argv)
         MatView(my_mats.B, PETSC_VIEWER_DEFAULT);
     }
 
-    pm__MatMatMult(&my_mats);
+#if defined(PETSC_USE_LOG)
+    PetscLogEventRegister("Matrix Mult",PETSC_VIEWER_CLASSID,&MAT_MULT);
+#endif
+
+    int idx;
+    for (idx=0; idx<10; idx++) {
+#if defined(PETSC_USE_LOG)
+        PetscLogEventBegin(MAT_MULT,0,0,0,0);
+#endif
+        PetscGetCPUTime(&v1);
+        pm__MatMatMult(&my_mats);
+        PetscGetCPUTime(&v2);
+        elapsed_time = v2 - v1;
+        PetscPrintf(PETSC_COMM_WORLD,"run %d elsapsed_time=%f\n",idx,elapsed_time);
+#if defined(PETSC_USE_LOG)
+        PetscLogEventEnd(MAT_MULT,0,0,0,0);
+#endif
+    }
     if (isViewMat)
     {
         MatView(my_mats.C, PETSC_VIEWER_DEFAULT);
     }
-
     MatDestroy(&my_mats.A);
     MatDestroy(&my_mats.B);
     MatDestroy(&my_mats.C);
+
+    if (rank==0) {
+        PetscFree(vals);
+        PetscFree(zvals);
+        PetscFree(idxn);
+    }
 
     PetscFinalize();
     return 0;
