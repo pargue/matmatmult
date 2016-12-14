@@ -6,17 +6,6 @@ simply causes the program to almost crash and return times of
 0 for each kernel call. 
 The matrices must be square and all matrices must be the same
 size.
-The total number of threads needed (size of the matrix squared)
-must be evenly divisible by the number of threads used per block. 
-If a grid is declared that contains a number of threads less than
-the declared number of threads per block, the kernel will return 
-a value of 0 for the elements of the answer array corresponding
-to all threads in that grid. For example, if the matrices being 
-used are 20x20 and the declared number of threads per block is 
-16x16, then the grids not containing 16x16 threads will return 0
-for all elements. The kernel call will return a 20x20 matrix with
-a 16x16 matrix inside it that is correct, and all the other 
-elements will be 0.  
 */
 
 #include <stdio.h>
@@ -27,7 +16,7 @@ elements will be 0.
 
  
 //serial matrix multiplication kernel
-/****__global__ void smultiply(int* g_a, int* g_b, int* g_c)
+__global__ void smultiply(int* g_a, int* g_b, int* g_c)
 {
   int x, y, z;
 
@@ -41,7 +30,7 @@ elements will be 0.
       }
     }
   }
-}*/
+}
 
 //parallel matrix multiplication kernel
 __global__ void pmultiply(double* g_a, double* g_b, double* g_d , int dim)
@@ -94,8 +83,8 @@ extern "C" void Cudamultiply(double* a, double* b, double* d, int Dim)
   //smultiply<<<1,1>>>(g_a, g_b, g_c);
   //cudaEventRecord(stop, 0);  
 
-  cudaEventSynchronize(stop);
-  cudaEventElapsedTime(&time, start, stop);
+  //cudaEventSynchronize(stop);
+  //cudaEventElapsedTime(&time, start, stop);
   //get run time
 
 //  cudaMemcpy(c, g_c, g_size, cudaMemcpyDeviceToHost);
@@ -127,7 +116,7 @@ extern "C" void Cudamultiply(double* a, double* b, double* d, int Dim)
   cudaFree(g_d);
   //free up all unused user allocated memory on Cuda device
 
-  printf("\n");  
+  //printf("\n");  
 
   /*The next 2 for loops print out the values of both
   answer matrices. This can be used to ensure that both
@@ -147,7 +136,7 @@ extern "C" void Cudamultiply(double* a, double* b, double* d, int Dim)
 ////        printf("%f ", c[i-1]);
 //  }
 
-  printf("\n");
+ // printf("\n");
 
 //  for (i = 1; i <= Dim * Dim; ++ i)
 //  {
